@@ -1,3 +1,7 @@
+[TOC]
+
+
+
 ## 一、ts的概念
 
 ts是js的超集
@@ -810,7 +814,23 @@ const tom: Cat = getCacheData('tom');
 
 优先使用类型声明，这也比类型断言的 `as` 语法更加优雅
 
+#### （10）类型断言 vs 泛型
 
+~~~ts
+function getCacheData<T>(key: string): T {
+    return (window as any).cache[key];
+}
+
+interface Cat {
+    name: string;
+    run(): void;
+}
+
+const tom = getCacheData<Cat>('tom');
+tom.run();
+~~~
+
+使用泛型来实现代替类型断言，可以更加规范的实现对 `getCacheData` 返回值的约束，这也同时去除掉了代码中的 `any`，是最优的一个解决方案
 
 ## 五、泛型
 
@@ -818,27 +838,232 @@ const tom: Cat = getCacheData('tom');
 
 ### 1.简单例子
 
+~~~ts
+function createArray<T>(length: number, value: T): Array<T> {
+    let result: T[] = [];
+    for (let i = 0; i < length; i++) {
+        result[i] = value;
+    }
+    return result;
+}
 
+createArray<string>(3, 'x'); // ['x', 'x', 'x']
+~~~
 
+通过泛型准确的定义返回值的类型
 
+`Array<any>` 允许数组的每一项都为任意类型。但是我们预期的是，数组中每一项都应该是输入的 `value` 的类型。
 
+在函数名后添加了 `<T>`，其中 `T` 用来指代任意输入的类型，在后面的输入 `value: T` 和输出 `Array<T>` 中即可使用了。
 
+接着在调用的时候，可以指定它具体的类型为 `string`。当然，也可以不手动指定，而让类型推论自动推算出来：
 
+~~~ts
+createArray(3, 'x'); // ['x', 'x', 'x']
+~~~
 
+### 2.多个类型参数
 
+定义泛型的时候，可以一次定义多个类型参数：
 
+```ts
+function swap<T, U>(tuple: [T, U]): [U, T] {
+    return [tuple[1], tuple[0]];
+}
 
+swap([7, 'seven']); // ['seven', 7]
+```
 
+### 3.泛型约束
 
+在函数内部使用泛型变量的时候，由于事先不知道它是哪种类型，所以不能随意的操作它的属性或方法：
 
+这时，我们可以对泛型进行约束，只允许这个函数传入那些包含 `length` 属性的变量。这就是泛型约束
 
+```ts
+interface Lengthwise {
+    length: number;
+}
 
+function loggingIdentity<T extends Lengthwise>(arg: T): T {
+    console.log(arg.length);
+    return arg;
+}
+```
 
+多个类型参数之间也可以互相约束
 
+~~~ts
+function copyFields<T extends U, U>(target: T, source: U): T {
+    for (let id in source) {
+        target[id] = (<T>source)[id];
+    }
+    return target;
+}
 
+let x = { a: 1, b: 2, c: 3, d: 4 };
 
+copyFields(x, { b: 10, d: 20 });
+~~~
 
+使用了两个类型参数，其中要求 `T` 继承 `U`，这样就保证了 `U` 上不会出现 `T` 中不存在的字段。
 
+### 4.泛型接口
+
+以把泛型参数提前到接口名上
+
+~~~ts
+interface CreateArrayFunc<T> {
+  (length: number, value: T): Array<T>
+}
+
+let createArray: CreateArrayFunc<any>
+createArray = function <T>(length: number, value: T): Array<T> {
+  let result: T[] = []
+  for (let i = 0; i < length; i++) {
+    result[i] = value
+  }
+  return result
+}
+
+console.log(createArray(3, 'x'))// ['x', 'x', 'x']
+~~~
+
+使用泛型接口的时候，需要定义泛型的类型
+
+### 5.泛型类
+
+与泛型接口类似，泛型也可以用于类的类型定义中
+
+~~~ts
+class GenericNumber<T> {
+    zeroValue: T;
+    add: (x: T, y: T) => T;
+}
+
+let myGenericNumber = new GenericNumber<number>();
+myGenericNumber.zeroValue = 0;
+myGenericNumber.add = function(x, y) { return x + y; };
+~~~
+
+### 6.泛型参数的默认类型
+
+在 TypeScript 2.3 以后，我们可以为泛型中的类型参数指定默认类型。当使用泛型时没有在代码中直接指定类型参数，从实际值参数中也无法推测出时，这个默认类型就会起作用。
+
+~~~ts
+function createArray<T = string>(length: number, value: T): Array<T> {
+    let result: T[] = [];
+    for (let i = 0; i < length; i++) {
+        result[i] = value;
+    }
+    return result;
+}
+~~~
+
+## 六、声明文件
+
+### 1.声明语句概念
+
+假如我们想使用第三方库 jQuery，一种常见的方式是在 html 中通过 `<script>` 标签引入 jQuery，然后就可以使用全局变量 `$` 或 `jQuery` 了。
+
+但是在 ts 中，编译器无法解析 `$` 或 `jQuery` 
+
+这时，我们可以使用 `declare var` 来定义它的类型
+
+~~~ts
+declare var jQuery: (selector: string) => any;
+
+jQuery('#foo');
+~~~
+
+### 2.声明文件
+
+#### （1）概念
+
+通常我们会把声明语句放到一个单独的文件（`jQuery.d.ts`）中，这就是声明文件
+
+声明文件必需以 `.d.ts` 为后缀
+
+假如无法解析，那么可以检查下 `tsconfig.json` 中的 `files`、`include` 和 `exclude` 配置，确保其包含了 `jQuery.d.ts` 文件。
+
+#### （2）第三方声明文件
+
+大部分的js库的声明文件不需要我们来定义，可以直接下载下来使用，但是更推荐的是使用 `@types` 统一管理第三方库的声明文件。
+
+`@types` 的使用方式很简单，直接用 npm 安装对应的声明模块即可，以 jQuery 举例：
+
+~~~ts
+npm install @types/jquery --save-dev
+~~~
+
+### 3.声明文件的使用
+
+当第三方库没有提供声明文件时，就需要我们自己来书写声明文件
+
+#### （1）声明文件中全局变量语法
+
+~~~ts
+declare var 声明全局变量
+declare function 声明全局方法
+declare class 声明全局类
+declare enum 声明全局枚举类型
+declare namespace 声明（含有子属性的）全局对象
+interface 和 type 声明全局类型
+~~~
+
+#### （2）declare namespace
+
+`namespace` 是 ts 早期时为了解决模块化而创造的关键字，中文称为命名空间。
+
+随着 ES6 的广泛应用，现在已经不建议再使用 ts 中的 `namespace`，而推荐使用 ES6 的模块化方案了，故我们不再需要学习 `namespace` 的使用了。
+
+`namespace` 被淘汰了，但是在声明文件中，`declare namespace` 还是比较常用的，它用来表示全局变量是一个对象，包含很多子属性。
+
+~~~ts
+// src/jQuery.d.ts
+declare namespace jQuery {
+    function ajax(url: string, settings?: any): void;
+}
+    
+jQuery.ajax('/api/get_something');
+~~~
+
+如果对象拥有深层的层级，则需要用嵌套的 `namespace` 来声明深层的属性的类型
+
+~~~ts
+// src/jQuery.d.ts
+declare namespace jQuery {
+    function ajax(url: string, settings?: any): void;
+    namespace fn {
+        function extend(object: any): void;
+    }
+}
+~~~
+
+~~~ts
+// src/index.ts
+
+jQuery.ajax('/api/get_something');
+jQuery.fn.extend({
+    check: function() {
+        return this.each(function() {
+            this.checked = true;
+        });
+    }
+});
+~~~
+
+假如 `jQuery` 下仅有 `fn` 这一个属性（没有 `ajax` 等其他属性或方法），则可以不需要嵌套 `namespace`
+
+~~~ts
+// src/jQuery.d.ts
+
+declare namespace jQuery.fn {
+    function extend(object: any): void;
+}
+~~~
+
+#### （3）interface和 type
 
 
 
