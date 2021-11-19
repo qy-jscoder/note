@@ -1011,7 +1011,36 @@ declare namespace 声明（含有子属性的）全局对象
 interface 和 type 声明全局类型
 ~~~
 
-#### （2）declare namespace
+#### （2）declare enum
+
+使用 `declare enum` 定义的枚举类型也称作外部枚举（Ambient Enums）
+
+~~~ts
+// src/Directions.d.ts
+
+declare enum Directions {
+    Up,
+    Down,
+    Left,
+    Right
+}
+~~~
+
+~~~ts
+// src/index.ts
+
+let directions = [Directions.Up, Directions.Down, Directions.Left, Directions.Right];
+~~~
+
+与其他全局变量的类型声明一致，`declare enum` 仅用来定义类型，而不是具体的值
+
+`Directions.d.ts` 仅仅会用于编译时的检查，声明文件里的内容在编译结果中会被删除。它编译结果是：
+
+~~~ts
+var directions = [Directions.Up, Directions.Down, Directions.Left, Directions.Right];
+~~~
+
+#### （3）declare namespace
 
 `namespace` 是 ts 早期时为了解决模块化而创造的关键字，中文称为命名空间。
 
@@ -1063,7 +1092,693 @@ declare namespace jQuery.fn {
 }
 ~~~
 
-#### （3）interface和 type
+#### （4）interface和 type
+
+除了全局变量之外，可能有一些类型我们也希望能暴露出来。在类型声明文件中，我们可以直接使用 `interface` 或 `type` 来声明一个全局的接口或类型。
+
+interface前不需要加declare
+
+~~~ts
+// src/jQuery.d.ts
+
+interface AjaxSettings {
+    method?: 'GET' | 'POST'
+    data?: any;
+}
+declare namespace jQuery {
+    function ajax(url: string, settings?: AjaxSettings): void;
+}
+~~~
+
+这样的话，在其他文件中也可以使用这个接口或类型了：
+
+~~~ts
+// src/index.ts
+
+let settings: AjaxSettings = {
+    method: 'POST',
+    data: {
+        name: 'foo'
+    }
+};
+jQuery.ajax('/api/post_something', settings);
+~~~
+
+type与interface类似
+
+#### （5）防止命名冲突
+
+暴露在最外层的 `interface` 或 `type` 会作为全局类型作用于整个项目中，我们应该尽可能的减少全局变量或全局类型的数量。故最好将他们放到 `namespace` 下
+
+~~~ts
+// src/jQuery.d.ts
+
+declare namespace jQuery {
+    interface AjaxSettings {
+        method?: 'GET' | 'POST'
+        data?: any;
+    }
+    function ajax(url: string, settings?: AjaxSettings): void;
+}
+~~~
+
+注意，在使用这个 `interface` 的时候，也应该加上 `jQuery` 前缀：
+
+~~~ts
+// src/index.ts
+
+let settings: jQuery.AjaxSettings = {
+    method: 'POST',
+    data: {
+        name: 'foo'
+    }
+};
+jQuery.ajax('/api/post_something', settings);
+~~~
+
+#### （6）声明合并
+
+假如 jQuery 既是一个函数，可以直接被调用 `jQuery('#foo')`，又是一个对象，拥有子属性 `jQuery.ajax()`（事实确实如此），那么我们可以组合多个声明语句，它们会不冲突的合并起来
+
+~~~ts
+// src/jQuery.d.ts
+
+declare function jQuery(selector: string): any;
+declare namespace jQuery {
+    function ajax(url: string, settings?: any): void;
+}
+~~~
+
+~~~ts
+// src/index.ts
+
+jQuery('#foo');
+jQuery.ajax('/api/get_something');
+~~~
+
+### 4.导入npm包
+
+一般我们通过 `import foo from 'foo'` 导入一个 npm 包，这是符合 ES6 模块规范的。
+
+在我们尝试给一个 npm 包创建声明文件之前，需要先看看它的声明文件是否已经存在。一般来说，npm 包的声明文件可能存在于两个地方：
+
+1. 与该 npm 包绑定在一起。判断依据是 `package.json` 中有 `types` 字段，或者有一个 `index.d.ts` 声明文件。这种模式不需要额外安装其他包，是最为推荐的，所以以后我们自己创建 npm 包的时候，最好也将声明文件与 npm 包绑定在一起。
+2. 发布到 `@types` 里。我们只需要尝试安装一下对应的 `@types` 包就知道是否存在该声明文件，安装命令是 `npm install @types/foo --save-dev`。这种模式一般是由于 npm 包的维护者没有提供声明文件，所以只能由其他人将声明文件发布到 `@types` 里了。
+
+
+
+假如以上两种方式都没有找到对应的声明文件，那么我们就需要自己为它写声明文件了。由于是通过 `import` 语句导入的模块，所以声明文件存放的位置也有所约束，一般有两种方案：
+
+1. 创建一个 `node_modules/@types/foo/index.d.ts` 文件，存放 `foo` 模块的声明文件。这种方式不需要额外的配置，但是 `node_modules` 目录不稳定，代码也没有被保存到仓库中，无法回溯版本，有不小心被删除的风险，故不太建议用这种方案，一般只用作临时测试。
+2. 创建一个 `types` 目录，专门用来管理自己写的声明文件，将 `foo` 的声明文件放到 `types/foo/index.d.ts` 中。这种方式需要配置下 `tsconfig.json` 中的 `paths` 和 `baseUrl` 字段。
+
+目录结构：
+
+~~~ts
+/path/to/project
+├── src
+|  └── index.ts
+├── types
+|  └── foo
+|     └── index.d.ts
+└── tsconfig.json
+~~~
+
+`tsconfig.json` 内容：
+
+~~~ts
+{
+    "compilerOptions": {
+        "module": "commonjs",
+        "baseUrl": "./",
+        "paths": {
+            "*": ["types/*"]
+        }
+    }
+}
+~~~
+
+如此配置之后，通过 `import` 导入 `foo` 的时候，也会去 `types` 目录下寻找对应的模块的声明文件了。
+
+注意 `module` 配置可以有很多种选项，不同的选项会影响模块的导入导出模式。这里我们使用了 `commonjs` 这个最常用的选项。
+
+npm 包的声明文件主要有以下几种语法：
+
+- [`export`](https://ts.xcatliu.com/basics/declaration-files.html#export) 导出变量
+- [`export namespace`](https://ts.xcatliu.com/basics/declaration-files.html#export-namespace) 导出（含有子属性的）对象
+- [`export default`](https://ts.xcatliu.com/basics/declaration-files.html#export-default) ES6 默认导出
+- [`export =`](https://ts.xcatliu.com/basics/declaration-files.html#export-1) commonjs 导出模块
+
+#### （1）导出
+
+npm 包的声明文件与全局变量的声明文件有很大区别。在 npm 包的声明文件中，使用 `declare` 不再会声明一个全局变量，而只会在当前文件中声明一个<span style="font-weight:bold">局部变量</span>。只有在声明文件中使用 `export` 导出，然后在使用方 `import` 导入后，才会应用到这些类型声明。
+
+`export` 的语法与普通的 ts 中的语法类似，区别仅在于声明文件中禁止定义具体的实现
+
+~~~ts
+// types/foo/index.d.ts
+
+export const name: string;
+export function getName(): string;
+export class Animal {
+    constructor(name: string);
+    sayHi(): string;
+}
+export enum Directions {
+    Up,
+    Down,
+    Left,
+    Right
+}
+export interface Options {
+    data: any;
+}
+~~~
+
+对应的导入和使用模块应该是这样：
+
+~~~ts
+// src/index.ts
+
+import { name, getName, Animal, Directions, Options } from 'foo';
+
+console.log(name);
+let myName = getName();
+let cat = new Animal('Tom');
+let directions = [Directions.Up, Directions.Down, Directions.Left, Directions.Right];
+let options: Options = {
+    data: {
+        name: 'foo'
+    }
+};
+~~~
+
+#### （2）混用 `declare` 和 `export`
+
+我们也可以使用 `declare` 先声明多个变量，最后再用 `export` 一次性导出。
+
+~~~ts
+// types/foo/index.d.ts
+
+declare const name: string;
+declare function getName(): string;
+declare class Animal {
+    constructor(name: string);
+    sayHi(): string;
+}
+declare enum Directions {
+    Up,
+    Down,
+    Left,
+    Right
+}
+interface Options {
+    data: any;
+}
+
+export { name, getName, Animal, Directions, Options };
+~~~
+
+注意，与全局变量的声明文件类似，`interface` 前是不需要 `declare` 的。
+
+#### （3）export namespace
+
+与 `declare namespace` 类似，`export namespace` 用来导出一个拥有子属性的对象
+
+~~~ts
+// types/foo/index.d.ts
+export namespace foo {
+    const name: string;
+    namespace bar {
+        function baz(): string;
+    }
+}
+    
+// src/index.ts
+import { foo } from 'foo';
+
+console.log(foo.name);
+foo.bar.baz();
+~~~
+
+#### （4）export  default
+
+在类型声明文件中，`export default` 用来导出默认值的类型
+
+~~~ts
+// types/foo/index.d.ts
+
+export default function foo(): string;
+
+// src/index.ts
+
+import foo from 'foo';
+
+foo();
+~~~
+
+注意，只有 `function`、`class` 和 `interface` 可以直接默认导出，其他的变量需要先定义出来，再默认导出。例如：
+
+~~~ts
+// types/foo/index.d.ts
+
+declare enum Directions {
+    Up,
+    Down,
+    Left,
+    Right
+}
+
+export default Directions;
+~~~
+
+#### （5）export =
+
+在 commonjs 规范中，我们用以下方式来导出一个模块：
+
+~~~js
+// 整体导出
+module.exports = foo;
+// 单个导出
+exports.bar = bar;
+~~~
+
+在 ts 中，针对这种模块导出，有多种方式可以导入
+
+第一种方式是 `const ... = require`：
+
+~~~ts
+// 整体导入
+const foo = require('foo');
+// 单个导入
+const bar = require('foo').bar;
+~~~
+
+第二种方式是 `import ... from`，注意针对整体导出，需要使用 `import * as` 来导入：
+
+```ts
+// 整体导入
+import * as foo from 'foo';
+// 单个导入
+import { bar } from 'foo';
+```
+
+第三种方式是 `import ... require`，这也是 ts 官方推荐的方式：
+
+```ts
+// 整体导入
+import foo = require('foo');
+// 单个导入
+import bar = foo.bar;
+```
+
+对于这种使用 commonjs 规范的库，假如要为它写类型声明文件的话，就需要使用到 `export =` 这种语法了[21](https://github.com/xcatliu/typescript-tutorial/tree/master/examples/declaration-files/21-export-equal)：
+
+```ts
+// types/foo/index.d.ts
+
+export = foo;
+
+declare function foo(): string;
+declare namespace foo {
+    const bar: number;
+}
+```
+
+需要注意的是，上例中使用了 `export =` 之后，就不能再单个导出 `export { bar }` 了。所以我们通过声明合并，使用 `declare namespace foo` 来将 `bar` 合并到 `foo` 里。
+
+准确地讲，`export =` 不仅可以用在声明文件中，也可以用在普通的 ts 文件中。实际上，`import ... require` 和 `export =` 都是 ts 为了兼容 AMD 规范和 commonjs 规范而创立的新语法，由于并不常用也不推荐使用，所以这里就不详细介绍了，感兴趣的可以看[官方文档](https://www.typescriptlang.org/docs/handbook/modules.html#export--and-import--require)。
+
+由于很多第三方库是 commonjs 规范的，所以声明文件也就不得不用到 `export =` 这种语法了。但是还是需要再强调下，相比与 `export =`，我们更推荐使用 ES6 标准的 `export default` 和 `export`。
+
+### 5.UMD 库
+
+既可以通过 `<script>` 标签引入，又可以通过 `import` 导入的库，称为 UMD 库。相比于 npm 包的类型声明文件，我们需要额外声明一个全局变量，为了实现这种方式，ts 提供了一个新语法 `export as namespace`。
+
+一般使用 `export as namespace` 时，都是先有了 npm 包的声明文件，再基于它添加一条 `export as namespace` 语句，即可将声明好的一个变量声明为全局变量，举例如下
+
+~~~ts
+// types/foo/index.d.ts
+
+export as namespace foo;
+export = foo;
+
+declare function foo(): string;
+declare namespace foo {
+    const bar: number;
+}
+~~~
+
+当然它也可以与 `export default` 一起使用：
+
+~~~~ts
+// types/foo/index.d.ts
+
+export as namespace foo;
+export default foo;
+
+declare function foo(): string;
+declare namespace foo {
+    const bar: number;
+}
+~~~~
+
+### 6.直接扩展全局变量
+
+
+
+
+
+
+
+
+
+## 七、类型别名
+
+类型别名用来给一个类型起个新名字。
+
+~~~ts
+type Name = string;
+type NameResolver = () => string;
+type NameOrResolver = Name | NameResolver;
+function getName(n: NameOrResolver): Name {
+    if (typeof n === 'string') {
+        return n;
+    } else {
+        return n();
+    }
+}
+~~~
+
+我们使用 `type` 创建类型别名。
+
+类型别名常用于联合类型。
+
+## 八、字符串字面量类型
+
+字符串字面量类型用来约束取值只能是某几个字符串中的一个。
+
+~~~ts
+type EventNames = 'click' | 'scroll' | 'mousemove';
+function handleEvent(ele: Element, event: EventNames) {
+    // do something
+}
+
+handleEvent(document.getElementById('hello'), 'scroll');  // 没问题
+handleEvent(document.getElementById('world'), 'dblclick'); // 报错，event 不能为 'dblclick'
+
+// index.ts(7,47): error TS2345: Argument of type '"dblclick"' is not assignable to parameter of type 'EventNames'.
+~~~
+
+使用 `type` 定了一个字符串字面量类型 `EventNames`，它只能取三种字符串中的一种。
+
+注意，**类型别名与字符串字面量类型都是使用 `type` 进行定义。**
+
+## 九、元组
+
+数组合并了相同类型的对象，而元组（Tuple）合并了不同类型的对象。
+
+### 1.简单使用
+
+定义一对值分别为 `string` 和 `number` 的元组：
+
+~~~ts
+let tom: [string, number] = ['Tom', 25];
+~~~
+
+当赋值或访问一个已知索引的元素时，会得到正确的类型：
+
+~~~ts
+let tom: [string, number];
+tom=['',0]//初始化
+tom[0] = 'Tom';
+tom[1] = 25;
+
+tom[0].slice(1);
+tom[1].toFixed(2);
+~~~
+
+也可以只赋值其中一项：
+
+~~~ts
+let tom: [string, number];
+tom[0] = 'Tom';
+~~~
+
+但是当直接对元组类型的变量进行初始化或者赋值的时候，需要提供所有元组类型中指定的项。
+
+~~~ts
+let tom: [string, number];
+tom = ['Tom', 25];
+
+let tom: [string, number];
+tom = ['Tom'];
+
+// Property '1' is missing in type '[string]' but required in type '[string, number]'.
+~~~
+
+### 2.越界的元素
+
+当添加越界的元素时，它的类型会被限制为元组中每个类型的联合类型：
+
+~~~ts
+let tom: [string, number];
+tom = ['Tom', 25];
+tom.push('male');
+tom.push(true);
+
+// Argument of type 'true' is not assignable to parameter of type 'string | number'.
+~~~
+
+此处tom元组内的类型为string和number，则越界的元素类型必须是其中之一
+
+## 十、枚举
+
+枚举（Enum）类型用于取值被限定在一定范围内的场景，比如一周只能有七天，颜色限定为红绿蓝等。
+
+### 1.简单使用
+
+枚举使用 `enum` 关键字来定义：
+
+```ts
+enum Days {Sun, Mon, Tue, Wed, Thu, Fri, Sat};
+```
+
+枚举成员会被赋值为从 `0` 开始递增的数字，同时也会对枚举值到枚举名进行反向映射：
+
+```ts
+console.log(Days["Sun"] === 0); // true
+console.log(Days["Mon"] === 1); // true
+console.log(Days["Tue"] === 2); // true
+console.log(Days["Sat"] === 6); // true
+
+console.log(Days[0] === "Sun"); // true
+console.log(Days[1] === "Mon"); // true
+console.log(Days[2] === "Tue"); // true
+console.log(Days[6] === "Sat"); // true
+```
+
+相当于
+
+~~~ts
+var Days;
+(function (Days) {
+    Days[Days["Sun"] = 3] = "Sun";
+    Days[Days["Mon"] = 1] = "Mon";
+    Days[Days["Tue"] = 2] = "Tue";
+    Days[Days["Wed"] = 3] = "Wed";
+    Days[Days["Thu"] = 4] = "Thu";
+    Days[Days["Fri"] = 5] = "Fri";
+    Days[Days["Sat"] = 6] = "Sat";
+})(Days || (Days = {}));
+~~~
+
+### 2.手动赋值
+
+我们也可以给枚举项手动赋值：
+
+~~~ts
+enum Days {Sun = 7, Mon = 1, Tue, Wed, Thu, Fri, Sat};
+
+console.log(Days["Sun"] === 7); // true
+console.log(Days["Mon"] === 1); // true
+console.log(Days["Tue"] === 2); // true
+console.log(Days["Sat"] === 6); // true
+~~~
+
+未手动赋值的枚举项会接着上一个枚举项递增
+
+如果未手动赋值的枚举项与手动赋值的重复了，TypeScript 是不会察觉到这一点的：
+
+```ts
+enum Days {Sun = 3, Mon = 1, Tue, Wed, Thu, Fri, Sat};
+
+console.log(Days["Sun"] === 3); // true
+console.log(Days["Wed"] === 3); // true
+console.log(Days[3] === "Sun"); // false
+console.log(Days[3] === "Wed"); // true
+```
+
+上面的例子中，递增到 `3` 的时候与前面的 `Sun` 的取值重复了，但是 TypeScript 并没有报错，导致 `Days[3]` 的值先是 `"Sun"`，而后又被 `"Wed"` 覆盖了。
+
+
+
+手动赋值的枚举项可以不是数字，此时需要使用类型断言来让 tsc 无视类型检查 (编译出的 js 仍然是可用的)：
+
+```ts
+enum Days {Sun = 7, Mon, Tue, Wed, Thu, Fri, Sat = <any>"S"};
+```
+
+当然，手动赋值的枚举项也可以为小数或负数，此时后续未手动赋值的项的递增步长仍为 `1`：
+
+~~~ts
+enum Days {Sun = 7, Mon = 1.5, Tue, Wed, Thu, Fri, Sat};
+
+console.log(Days["Sun"] === 7); // true
+console.log(Days["Mon"] === 1.5); // true
+console.log(Days["Tue"] === 2.5); // true
+console.log(Days["Sat"] === 6.5); // true
+~~~
+
+### 3.常数项和计算所得项
+
+枚举项有两种类型：常数项（constant member）和计算所得项（computed member）。
+
+前面我们所举的例子都是常数项，一个典型的计算所得项的例子：
+
+```ts
+enum Color {Red, Green, Blue = "blue".length};
+```
+
+上面的例子中，`"blue".length` 就是一个计算所得项。
+
+**如果紧接在计算所得项后面的是未手动赋值的项，那么它就会因为无法获得初始值而报错**
+
+```ts
+enum Color {Red = "red".length, Green, Blue};
+
+// index.ts(1,33): error TS1061: Enum member must have initializer.
+// index.ts(1,40): error TS1061: Enum member must have initializer.
+```
+
+下面是常数项和计算所得项的完整定义:
+
+当满足以下条件时，枚举成员被当作是常数：
+
+- 不具有初始化函数并且之前的枚举成员是常数。在这种情况下，当前枚举成员的值为上一个枚举成员的值加 `1`。但第一个枚举元素是个例外。如果它没有初始化方法，那么它的初始值为 `0`。
+- 枚举成员使用常数枚举表达式初始化。常数枚举表达式是 TypeScript 表达式的子集，它可以在编译阶段求值。当一个表达式满足下面条件之一时，它就是一个常数枚举表达式：
+  - 数字字面量
+  - 引用之前定义的常数枚举成员（可以是在不同的枚举类型中定义的）如果这个成员是在同一个枚举类型中定义的，可以使用非限定名来引用
+  - 带括号的常数枚举表达式
+  - `+`, `-`, `~` 一元运算符应用于常数枚举表达式
+  - `+`, `-`, `*`, `/`, `%`, `<<`, `>>`, `>>>`, `&`, `|`, `^` 二元运算符，常数枚举表达式做为其一个操作对象。若常数枚举表达式求值后为 NaN 或 Infinity，则会在编译阶段报错
+
+所有其它情况的枚举成员被当作是需要计算得出的值。
+
+### 4.常数枚举
+
+常数枚举是使用 `const enum` 定义的枚举类型：
+
+```ts
+const enum Directions {
+    Up,
+    Down,
+    Left,
+    Right
+}
+
+let directions = [Directions.Up, Directions.Down, Directions.Left, Directions.Right];
+```
+
+常数枚举与普通枚举的区别是，它会在编译阶段被删除，并且不能包含计算成员。
+
+上例的编译结果是：
+
+```js
+var directions = [0 /* Up */, 1 /* Down */, 2 /* Left */, 3 /* Right */];
+```
+
+假如包含了计算成员，则会在编译阶段报错：
+
+```ts
+const enum Color {Red, Green, Blue = "blue".length};
+
+// index.ts(1,38): error TS2474: In 'const' enum declarations member initializer must be constant expression.
+```
+
+### 5.外部枚举
+
+外部枚举（Ambient Enums）是使用 `declare enum` 定义的枚举类型：
+
+```ts
+declare enum Directions {
+    Up,
+    Down,
+    Left,
+    Right
+}
+
+let directions = [Directions.Up, Directions.Down, Directions.Left, Directions.Right];
+```
+
+之前提到过，`declare` 定义的类型只会用于编译时的检查，编译结果中会被删除。所以此处无法打印，否则报错
+
+上例的编译结果是：
+
+```js
+var directions = [Directions.Up, Directions.Down, Directions.Left, Directions.Right];
+```
+
+外部枚举与声明语句一样，常出现在声明文件中。
+
+同时使用 `declare` 和 `const` 也是可以的：
+
+```ts
+declare const enum Directions {
+    Up,
+    Down,
+    Left,
+    Right
+}
+
+let directions = [Directions.Up, Directions.Down, Directions.Left, Directions.Right];
+```
+
+编译结果：
+
+```js
+var directions = [0 /* Up */, 1 /* Down */, 2 /* Left */, 3 /* Right */];
+```
+
+## 十一、类
+
+TypeScript 可以使用三种访问修饰符（Access Modifiers），分别是 `public`、`private` 和 `protected`。
+
+- `public` 修饰的属性或方法是公有的，可以在任何地方被访问到，默认所有的属性和方法都是 `public` 的
+- `private` 修饰的属性或方法是私有的，不能在声明它的类的外部访问
+- `protected` 修饰的属性或方法是受保护的，它和 `private` 类似，区别是它在子类中也是允许被访问的
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
