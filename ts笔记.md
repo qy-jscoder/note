@@ -366,6 +366,76 @@ tom.id = 89757;
 
 第二处是在给 `tom.id` 赋值的时候，由于它是只读属性，所以报错了。
 
+#### （5）接口的合并
+
+接口中的属性在合并时会简单的合并到一个接口中：
+
+```ts
+interface Alarm {
+    price: number;
+}
+interface Alarm {
+    weight: number;
+}
+```
+
+相当于
+
+~~~ts
+interface Alarm {
+    price: number;
+    weight: number;
+}
+~~~
+
+**合并的属性的类型必须是一致的**：
+
+```ts
+interface Alarm {
+    price: number;
+}
+interface Alarm {
+    price: number;  // 虽然重复了，但是类型都是 `number`，所以不会报错
+    weight: number;
+}
+```
+
+```ts
+interface Alarm {
+    price: number;
+}
+interface Alarm {
+    price: string;  // 类型不一致，会报错
+    weight: number;
+}
+
+// index.ts(5,3): error TS2403: Subsequent variable declarations must have the same type.  Variable 'price' must be of type 'number', but here has type 'string'.
+```
+
+其中方法的合并，与函数的合并一样
+
+~~~ts
+interface Alarm {
+    price: number;
+    alert(s: string): string;
+}
+interface Alarm {
+    weight: number;
+    alert(s: string, n: number): string;
+}
+~~~
+
+相当于：
+
+```ts
+interface Alarm {
+    price: number;
+    weight: number;
+    alert(s: string): string;
+    alert(s: string, n: number): string;
+}
+```
+
 ### 11.数组类型
 
 #### （1）常见定义
@@ -1757,6 +1827,308 @@ TypeScript 可以使用三种访问修饰符（Access Modifiers），分别是 `
 - `public` 修饰的属性或方法是公有的，可以在任何地方被访问到，默认所有的属性和方法都是 `public` 的
 - `private` 修饰的属性或方法是私有的，不能在声明它的类的外部访问
 - `protected` 修饰的属性或方法是受保护的，它和 `private` 类似，区别是它在子类中也是允许被访问的
+
+### 1.参数属性
+
+修饰符和`readonly`还可以使用在构造函数参数中，等同于类中定义该属性同时给该属性赋值，使代码更简洁。
+
+```ts
+class Animal {
+  public constructor(public name) {
+    // this.name = name;
+  }
+}
+```
+
+相当于
+
+~~~ts
+class Animal {
+  public name;
+  public constructor(name) {
+    // this.name = name;
+  }
+}
+~~~
+
+### 2.readonly
+
+只读属性关键字，只允许出现在属性声明或索引签名或构造函数中。
+
+在类的外部，只能读取，无法赋值
+
+```ts
+class Animal {
+  readonly name;
+  public constructor(name) {
+    this.name = name;
+  }
+}
+
+let a = new Animal('Jack');
+console.log(a.name); // Jack
+a.name = 'Tom';
+// index.ts(10,3): TS2540: Cannot assign to 'name' because it is a read-only property.
+```
+
+如果 `readonly` 和其他访问修饰符同时存在的话，需要写在其后面
+
+```ts
+class Animal {
+  // public readonly name;
+  public constructor(public readonly name) {
+    // this.name = name;
+  }
+}
+```
+
+### 3.抽象类
+
+`abstract` 用于定义抽象类和其中的抽象方法。
+
+#### （1）不允许被实例化
+
+```ts
+abstract class Animal {
+  public name;
+  public constructor(name) {
+    this.name = name;
+  }
+  public abstract sayHi();
+}
+
+let a = new Animal('Jack');
+
+// index.ts(9,11): error TS2511: Cannot create an instance of the abstract class 'Animal'.
+```
+
+#### （2）抽象方法必须被子类实现
+
+如果定义了一个类 `Cat` 继承了抽象类 `Animal`，但是没有实现抽象方法 `sayHi`，那么编译时会报错。
+
+注意：抽象方法不能具体实现
+
+```ts
+abstract class Animal {
+  public name;
+  public constructor(name) {
+    this.name = name;
+  }
+  public abstract sayHi();
+}
+
+class Cat extends Animal {
+  public sayHi() {
+    console.log(`Meow, My name is ${this.name}`);
+  }
+}
+
+let cat = new Cat('Tom');
+```
+
+#### （3）类的类型
+
+给类加上 TypeScript 的类型，与接口类似：
+
+```ts
+class Animal {
+  name: string;
+  constructor(name: string) {
+    this.name = name;
+  }
+  sayHi(): string {
+    return `My name is ${this.name}`;
+  }
+}
+
+let a: Animal = new Animal('Jack');
+console.log(a.sayHi()); // My name is Jack
+```
+
+## 十二、类与接口
+
+实现（implements）是面向对象中的一个重要概念。一般来讲，一个类只能继承自另一个类，有时候不同类之间可以有一些共有的特性，这时候就可以把特性提取成接口（interfaces），用 `implements` 关键字来实现。这个特性大大提高了面向对象的灵活性。
+
+### 1.类实现多个接口
+
+```ts
+interface Alarm {
+    alert(): void;
+}
+
+interface Light {
+    lightOn(): void;
+    lightOff(): void;
+}
+
+class Car implements Alarm, Light {
+    alert() {
+        console.log('Car alert');
+    }
+    lightOn() {
+        console.log('Car light on');
+    }
+    lightOff() {
+        console.log('Car light off');
+    }
+}
+```
+
+### 2.接口继承接口
+
+```ts
+interface Alarm {
+    alert(): void;
+}
+
+interface LightableAlarm extends Alarm {
+    lightOn(): void;
+    lightOff(): void;
+}
+```
+
+这很好理解，`LightableAlarm` 继承了 `Alarm`，除了拥有 `alert` 方法之外，还拥有两个新方法 `lightOn` 和 `lightOff`。
+
+### 3.接口继承类
+
+常见的面向对象语言中，接口是不能继承类的，但是在 TypeScript 中却是可以的：
+
+```ts
+class Point {
+    x: number;
+    y: number;
+    constructor(x: number, y: number) {
+        this.x = x;
+        this.y = y;
+    }
+}
+
+interface Point3d extends Point {
+    z: number;
+}
+
+let point3d: Point3d = {x: 1, y: 2, z: 3};
+```
+
+当我们在声明 `class Point` 时，除了会创建一个名为 `Point` 的类之外，同时也创建了一个名为 `Point` 的类型（实例的类型）。
+
+所以我们既可以将 `Point` 当做一个类来用（使用 `new Point` 创建它的实例），也可以将 `Point` 当做一个类型来用（使用 `: Point` 表示参数的类型）。
+
+~~~ts
+class Point {
+    x: number;
+    y: number;
+    constructor(x: number, y: number) {
+        this.x = x;
+        this.y = y;
+    }
+}
+
+interface PointInstanceType {
+    x: number;
+    y: number;
+}
+~~~
+
+~~~ts
+function printPoint(p: Point) {
+    console.log(p.x, p.y);
+}
+~~~
+
+可以等价于
+
+```ts
+function printPoint(p: PointInstanceType) {
+    console.log(p.x, p.y);
+}
+```
+
+所以，可以说TypeScript 支持接口继承类
+
+"接口继承类"和"接口继承接口"没有什么本质的区别。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
